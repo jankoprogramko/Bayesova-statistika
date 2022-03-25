@@ -1,0 +1,276 @@
+---
+title: '1. DN - Bayesova Statistika: Algoritem Metropolis-Hastings'
+author: "Jan Črne"
+fontsize: 12pt
+output:
+  pdf_document:
+    number_sections: yes
+  html_document:
+    df_print: paged
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, fig.width = 8, fig.height = 5, out.width = "0.8\\textwidth")
+```
+
+
+# Primer: normalni model z znano varianco
+
+Uporabili bomo algoritem Metropolis-Hastings za primer iz 3. sklopa, kjer so bili naši podatki število ur, ki so jih dijaki potrebovali za pripravo domače naloge.:
+```{r}
+library(glue)
+
+x <- c(2.11, 9.75, 13.88, 11.3, 8.93, 15.66, 16.38, 4.54, 8.86, 11.94, 
+  12.47, 11.11, 11.65, 14.53, 9.61, 7.38, 3.34, 9.06, 9.45, 5.98,
+  7.44, 8.5, 1.55, 11.45, 9.73)
+```
+
+Privzemimo normalni model z znano varianco $\sigma^2 = 4$, torej $(X_i | \theta) \sim N(\theta, \sigma^2=4)$, medtem ko naj bo apriorna porazdelitev $\theta \sim N(\theta_0 = 6, \tau_0^2=9)$. Zanimala nas je aposteriorna porazdelitev $(\theta | X)$, ki vemo, da je porazdeljena normalno $N(\mu_1, \tau_1^2)$, kjer sta parametra enaka:
+$$\mu_1 = \frac{\tau_0^2}{\frac{\sigma^2}{n} + \tau_0^2 } \bar{X} + \frac{\frac{\sigma^2}{n}}{\frac{\sigma^2}{n} + \tau_0^2 } \mu_0$$
+$$\tau_1^2 = \frac{ \frac{\sigma^2}{n} \cdot \tau_0^2 }{\frac{\sigma^2}{n} + \tau_0^2}$$
+
+Pravo aposteriorno porazdelitev torej poznamo.
+
+V nalogi jo bomo aproksimirali s pomočjo algoritma Metropolis-Hastings.
+
+\clearpage
+# Naloge za vaje, ki so hkrati domača naloga
+
+Za primer iz 3. sklopa aproksimirajte aposteriorno porazdelitev s pomočjo algoritma Metropolis-Hastings, kjer sledite spodnjim korakom.
+
+1. Sami v R-u sprogramirajte algoritem Metropolis-Hastings za naš primer. Izberite smiselno *predlagalno jedro* $q(\cdot| \theta^{(n-1)})$ (npr: $q(\cdot| \theta^{(n-1)}) \sim N(\theta^{(n-1)}, \sigma_q^2 = 0.1^2)$; lahko tudi izberete drugo porazdelitev). Ključno je, da algoritem sprogramirate sami, pri čemer splošnost kode in efektivnost implementacije nista pomembni. Opomba: $f(X | \theta)$ je verjetje za $X=(X_1, ..., X_n)$, kjer so $X_i$ normalno porazdeljeni: $f(X | \theta) = \frac{1}{(2\pi \sigma^2)^\frac{n}{2}} \cdot \exp{ \Big( - \frac{1}{2 \sigma^2} \sum\limits_{i=1}^n (X_i - \theta)^2 \Big)}$.
+
+```{r}
+n <- length(x)
+pv <- mean(x)
+
+
+sigma.vz <- 2 # standardni odklon vzorčne porazdelitve
+
+omega0 <- 6 # upanje apriorne normalne porazdelitve
+tau0 <- 3 # standardni odklon apriorne normalne porazdelitve
+
+sigma.q <- 0.1 # standardni odklon normalnega predlagalnega jedra
+
+mi1 <- tau0^2 / (sigma.vz^2 / n + tau0^2) * pv +
+   (sigma.vz^2 / n) / ( sigma.vz^2 / n + tau0^2) * omega0 # teoretično
+                                          # upanje apost. porazdelitve
+
+tau1 <- sqrt((sigma.vz^2 / n * tau0^2) / (sigma.vz^2 / n + tau0^2))
+# stand. odklon teoretične apost. porazdelitve 
+
+```
+
+
+
+
+```{r}
+MetropolisHastings <- function(zac, st_iteracij, x, sigma.q, B = 1) {
+   vzorec <- c(zac, rep(0, st_iteracij))
+   u_ji <- runif(st_iteracij + 1, 0, 1)
+   
+   for (i in 2:st_iteracij + 1) {
+      q.prej <- vzorec[i - 1] # prejsnja realizacija oz. pric. vr. nove                                  realizacije
+      y <- rnorm(1, q.prej, sigma.q)
+      
+      imenovalec <- log(
+         1/(2 * pi * sigma.vz^2)^(length(x) / 2) *
+         exp(-1/(2 * sigma.vz^2) * sum((x - q.prej)^2))
+         ) +
+         log(dnorm(q.prej, omega0, tau0)) +
+         log(dnorm(y, q.prej, sigma.q))
+      
+      
+      stevec <-  log(
+         1/(2 * pi * sigma.vz^2)^(length(x) / 2) *
+         exp(-1/(2 * sigma.vz^2) * sum((x - y)^2))) +
+         log(dnorm(y, omega0, tau0)) +
+         log(dnorm(q.prej, y, sigma.q))
+      
+      
+      verj_rho <- 0
+      
+      if (imenovalec != -Inf){
+         verj_rho <- min(log(1), stevec - imenovalec)
+      }
+      else {
+         verj_rho <- log(1)
+      }
+      # print(verj_rho)
+      
+      if (log(u_ji[i]) <= verj_rho) {
+         vzorec[i] <- y
+      }
+      else {
+         vzorec[i] <- q.prej
+      }
+      
+   }
+   
+   vzorec[-c(1:B)]
+   
+   # vzorec
+
+}
+
+```
+
+
+
+2. Preizkusite algoritem na našem primeru, kjer si sami izberite neko smiselno začetno vrednost $\theta^{(0)}$ in varianco *predlagalne gostote* (v zgornjem primeru smo jo označili $\sigma_q^2$). Opomba: zaradi numerične stabilnosti ob vsaki iteraciji izračunajte logaritem verjetnosti $\rho (\theta^{(n-1)}, y)$ in na podlagi tega logaritma se odločite, kakšen bo $\theta^{(n)}$. Rezultate predstavite na naslednji način:
+   + Narišite celotno dobljeno zaporedje $\{\theta^{(0)}, \theta^{(1)}, ... \theta^{(S)}\}$ (naj bo $S$ vsaj $30000$ - lahko tudi vzamete več iteracij). Lahko uporabite funkcijo \texttt{plot(..., type='l')}.
+   + Narišite le prvih 500 ali pa 5000 členov.
+   + Narišite celotno zaporedje, kjer uporabite ustrezen *burn-in* parameter $B$.
+   + Za tako izbrano zaporedje grafično predstavite aposteriorno porazdelitev in jo grafično primerjajte s pravo (teoretično) aposteriorno porazdelitvijo.
+   + Ocenite parameter in 95% interval zaupanja za parameter iz izbranega zaporedja ter primerjajte z ocenami iz prave aposterirone porazdelitve.
+   
+   
+```{r}
+zac_vr <- pv
+
+poskus <- MetropolisHastings(zac_vr, 30000, x, sigma.q)
+poskus <- poskus[-1]
+
+plot(1:length(poskus), poskus, type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij', main = 'Celotno dobljeno zaporedje')
+
+plot(1:500, poskus[1:500], type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij', main = 'Prvih 500 členov')
+
+plot(1:5000, poskus[1:5000], type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij', main = 'Prvih 5000 členov')
+
+plot(320:length(poskus), poskus[320:length(poskus)], type = 'l',
+     ylab = 'vzorec', xlab = 'število iteracij',
+     main = 'Zaporedje z "burn in" 320')
+
+
+```
+
+```{r}
+uporabne <- poskus[320:length(poskus)]
+hist(uporabne, probability = TRUE, ylab = 'gostota',
+     xlab = expression(theta),
+     main = expression(
+        atop('Primerjava analitične apos. gost. in',
+             'vzorčenja z "burn in" 320')),
+     ylim = c(0, 1.2)
+)
+lines(seq(8, 11, 0.001), dnorm(seq(8, 11, 0.001), mi1, tau1),
+        col = 'red')
+legend("topright", legend = c("N(mi1, tau1)","vzorčenje"),
+       col = c("red","black"), lty = 1, bty = "n", cex = 0.59)
+
+kvantila.vz <- quantile(uporabne, c(0.025, 0.975))
+kvantila.teor <- qnorm(c(0.025, 0.975), mi1, tau1)
+
+abline(v = kvantila.vz[1], col = "black", lty = 2)
+abline(v = kvantila.vz[2], col = "black", lty = 2)
+abline(v = kvantila.teor[1], col = "red", lty = 2)
+abline(v = kvantila.teor[2], col = "red", lty = 2)
+
+kvantila.vz # kvantila našega vzorčenja
+kvantila.teor # kvantila iz teoretične/analitične gostote
+
+
+
+
+```
+
+
+
+3. Poženite vas algoritem pri neki nesmiselni zacetni vrednosti. Rezultate predstavite:
+   + Narišite celotno dobljeno zaporedje $\{\theta^{(0)}, \theta^{(1)}, ... \theta^{(S)}\}$.
+   + Narišite le prvih 500 ali pa 5000 členov.
+   + Določite vrednost $B$, ki bi bila smiselna za vaš primer. Narišite celotno zaporedje, kjer uporabite ustrezen $B$.
+   
+```{r}
+zac_vr2 <- 712500 # pričakovana življenska doba (v urah)
+
+poskus2 <- MetropolisHastings(zac_vr2, 30000, x, sigma.q)
+
+plot(1:length(poskus2), poskus2, type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij', main = 'Celotno dobljeno zaporedje')
+
+plot(1:500, poskus2[1:500], type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij', main = 'Prvih 500 členov')
+
+plot(1:5000, poskus2[1:5000], type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij', main = 'Prvih 5000 členov')
+
+plot(400:length(poskus2), poskus2[400:length(poskus2)], type = 'l',
+     ylab = 'vzorec', xlab = 'število iteracij',
+     main = 'Zaporedje z "burn in" 400')
+
+plot(1:length(poskus2), poskus2, type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij', main = 'Celotno dobljeno zaporedje')
+abline(v = 400, col = "red", lty = 2)
+legend("bottomright", legend = c("B = 400","vzorčenje"),
+       col = c("red","black"), lty = 1, bty = "n", cex = 0.59)
+
+
+
+
+
+
+```
+
+   
+4. Pri neki smiselni začetni vrednosti poženite algoritem pri nekaj razlicnih variancah za *predlagalno jedro*. Pri izboru pretiravajte v obe smeri (spomnite se, kakšni so po velikosti naši podatki), tako da boste grafično opazili razlike na prvih npr. 500 iteracijah. Rezultate predstavite:
+   + Za vsak primer narisite prvih nekaj (nekje med 500 in 5000) členov in še celotno zaporedje.
+   + Komentirajte razlike in zakaj do njih pride. Kaj in zakaj vas moti pri izbranih primerih?
+   + Kakšen bi bil v splošnem (ne vezano na naš vzorec) vaš predlog glede izbora variance *predlagalnega jedra* oz. kakšen bi bil predlog za izbor končnega zaporedja?
+
+```{r results = 'hide', fig.width = 4, fig.height = 3, out.width = "0.5\\textwidth"}
+
+variance <- c(sigma.q, 500, 10^5, 1000, 10, 10^(-10), 10^(-5), 1, pv, var(x))
+
+upanja <- rep(0, length(variance)) # upanja zadnjih 25000 vzorčenj
+st.odkloni <- rep(0, length(variance)) # standardni odkloni zadnjih 25000 vzorčenj
+
+for (i in 1:length(variance)) {
+   poskusek <- MetropolisHastings(zac_vr, 50000, x, variance[i])
+   
+   upanja[i] <- mean(poskusek[25000:length(poskusek)])
+   st.odkloni[i] <- sd(poskusek[25000:length(poskusek)])
+
+   plot(1:length(poskusek), poskusek, type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij',
+     main = glue("Celotno zaporedje z varianco {round(variance[i], 4)}"))
+
+   plot(1:500, poskusek[1:500], type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij',
+     main = glue('Prvih 500 členov z varianco {variance[i]}'))
+
+   plot(1:5000, poskusek[1:5000], type = 'l', ylab = 'vzorec',
+     xlab = 'število iteracij',
+     main = glue('Prvih 5000 členov z varianco {variance[i]}'))
+}
+
+```
+
+
+```{r}
+tabela <- data.frame("Varianca jedra" = variance,
+                      "Upanje realiziranega vzorca" = round(upanja, 4),
+                      "St. odklon realiziranega vzorca" = round(st.odkloni, 4))
+
+knitr::kable(tabela, caption =
+                "Primerjava vzorca v odvisnosti od variance predlagalnega jedra")
+
+pv # povprečna vrednost osvežitvenega vzorca
+sd(x) # standardni odklon osvežitvenega vzorca
+```
+
+KOMENTAR:
+
+Ob veliki varianci predlagalnega jedra je, da dosežemo ustalitev vzorečenih vrednosti okoli naše pričakovane vrednosti potrebnih več "burn in" iteracij, prav tako le te večkrat zapored vrnejo enake vrednosti, kar glede na to, da vemo da vzorčimo iz zvezne normalne porazdelitve ni najbolj pravilno.Sicer se pri velikih vrednostih povprecje nasega vzorca dokaj dobro ujema z povprecjem nasega osvežitvenega vzorca.
+
+Enako ne velja za izredno nizke variance. Pri njih so vzorčena povprečja okoli 0 medtem, ko bi pričakovali vrednosti okoli 9. Pri nizkih variancah se prav tako kot pri zredno viskokih zaporedje ne ustali, torej markovska veriga stacionarnost, ki bi odražala porazdelitev parametra doseže kasneje.
+
+Po ogledu primerjave 25000 vzorčenih količin (za 25000, se se odločil po ogledu vseh grafov) me najbolj prepričajo rezultat v katerem za varianco predlagalnega jedra vzamemo kar varianco osvežitvenega vzorca x.
+
+   
+\clearpage
